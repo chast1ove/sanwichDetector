@@ -341,17 +341,21 @@ func (api *DetectAPI) createLogFile() (*os.File, error) {
 
 func logSandwichAttack(logFile io.Writer, txDetails1, txDetails2, txDetails3 TransactionDetails, blockNumber int64) {
 
+	timestamp := time.Now()
+	formattedTimestamp := timestamp.Format(time.RFC3339)
 	details := fmt.Sprintf(
 		"Detected sandwich attack in block %d:\n"+
 			"tx1: %s gas1: %d sender1: %s to1: %s valuein1: %s valueout1: %s\n"+
 			"tx2: %s gas2: %d sender2: %s to2: %s valuein2: %s valueout2: %s\n"+
 			"tx3: %s gas3: %d sender3: %s to3: %s valuein3: %s valueout3: %s\n"+
-			"Trading pair address: %s\n",
+			"Trading pair address: %s\n"+
+			"detecting time: %s\n",
 		blockNumber,
 		txDetails1.Hash.Hex(), txDetails1.Gas, txDetails1.Sender.Hex(), txDetails1.To.Hex(), txDetails1.ValueIn.String(), txDetails1.ValueOut.String(),
 		txDetails2.Hash.Hex(), txDetails2.Gas, txDetails2.Sender.Hex(), txDetails2.To.Hex(), txDetails2.ValueIn.String(), txDetails2.ValueOut.String(),
 		txDetails3.Hash.Hex(), txDetails3.Gas, txDetails3.Sender.Hex(), txDetails3.To.Hex(), txDetails3.ValueIn.String(), txDetails3.ValueOut.String(),
 		txDetails1.TokenPairAddress.Hex(),
+		formattedTimestamp,
 	)
 
 	_, err := logFile.Write([]byte(details))
