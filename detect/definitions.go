@@ -1,13 +1,12 @@
 package detect
 
 import (
-	"log"
 	"math/big"
-	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // "Transfer" 事件的 ABI
@@ -20,6 +19,8 @@ var emptyAddress = common.HexToAddress("0x00000000000000000000000000000000000000
 
 var swapEventABI abi.ABI
 var transferEventABI abi.ABI
+var TransferEventSignatureHash common.Hash
+var SwapEventABIEventSignatureHash common.Hash
 
 var signer types.Signer
 
@@ -28,20 +29,31 @@ var clientURL = "ws://localhost:8546"
 
 // 在开始时初始化
 func init() {
-	var err error
-	swapEventABI, err = abi.JSON(strings.NewReader(uniswapSwapEventABI))
-	if err != nil {
-		log.Printf("Error parsing Uniswap Swap event ABI: %v", err)
-		panic("failed to parse Uniswap Swap event ABI11")
-		//return // 返回，避免进一步执行可能会触发其他错误的代码
-	}
+	// var err error
+	// swapEventABI, err = abi.JSON(strings.NewReader(uniswapSwapEventABI))
+	// if err != nil {
+	// 	log.Printf("Error parsing Uniswap Swap event ABI: %v", err)
+	// 	panic("failed to parse Uniswap Swap event ABI11")
+	// }
 
-	transferEventABI, err = abi.JSON(strings.NewReader(erc20TransferEventABI))
-	if err != nil {
-		log.Printf("Error parsing ERC20 Transfer event ABI: %v", err)
-		panic("failed to parse ERC20 Transfer event ABI")
-	}
+	// transferEventABI, err = abi.JSON(strings.NewReader(erc20TransferEventABI))
+	// if err != nil {
+	// 	log.Printf("Error parsing ERC20 Transfer event ABI: %v", err)
+	// 	panic("failed to parse ERC20 Transfer event ABI")
+	// }
 
 	chainID := big.NewInt(1) // 主网
-	signer = types.NewEIP155Signer(chainID)
+	//signer = types.NewEIP155Signer(chainID)
+	signer = types.NewLondonSigner(chainID)
+	TransferEventSignatureHash = getTransferEventSignatureHash()
+	SwapEventABIEventSignatureHash = getSwapEventABIEventSignatureHash()
+}
+
+func getTransferEventSignatureHash() common.Hash {
+	TransferEventSignatureHash := crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
+	return TransferEventSignatureHash
+}
+func getSwapEventABIEventSignatureHash() common.Hash {
+	SwapEventABIEventSignatureHash := crypto.Keccak256Hash([]byte("Swap(address,uint256,uint256,uint256,uint256,address)"))
+	return SwapEventABIEventSignatureHash
 }

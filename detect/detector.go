@@ -119,7 +119,7 @@ func (api *DetectAPI) DetectCurrentBLockSandwichAttack(ctx context.Context, star
 	defer logFile.Close()
 
 	err = api.detectLogic(ctx, startBlockNumber, endBlockNumber, logFile)
-	log.Printf("detectLogic error: %v", err)
+	log.Printf("detectLogic error (DetectCurrentBLockSandwichAttack): %v", err)
 	return err
 }
 
@@ -144,40 +144,40 @@ func (api *DetectAPI) detectLogic(ctx context.Context, startBlockNumber int64, e
 			for index1 := 0; index1 < numTxs; index1++ {
 				tx1 := transactions[index1]
 				if tx1.Data() == nil {
-					log.Printf("only normal transaction: %v", err)
+					log.Printf("tx1 only normal transaction: %v", err)
 					continue
 				}
 				hash1, sender1, to1, tokenPairAddress1, valueIn1, valueOut1, gas1, err := parseTransaction(ctx, api.client, signer, tx1, header)
-				if err != nil {
-					log.Printf("parseTransaction err: %v", err)
+				if err != nil || tokenPairAddress1 == emptyAddress || valueIn1 == nil || valueOut1 == nil || gas1 == 0 {
+					log.Printf("tx1 parseTransaction err: %v", err)
 					continue // 如果解析失败，可能不是swap，继续下一个
 				}
-
+			OuterLoop: //检查到跳出，重新开始index1循环
 				for index2 := index1 + 1; index2 < numTxs; index2++ {
 					tx2 := transactions[index2]
 					if tx2.Data() == nil {
-						log.Printf("only normal transaction: %v", err)
+						log.Printf("tx2 only normal transaction: %v", err)
 						continue
 					}
 					hash2, sender2, to2, tokenPairAddress2, valueIn2, valueOut2, gas2, err := parseTransaction(ctx, api.client, signer, tx2, header)
-					if err != nil {
-						log.Printf("parseTransaction err: %v", err)
+					if err != nil || tokenPairAddress2 == emptyAddress || valueIn2 == nil || valueOut2 == nil || gas2 == 0 {
+						log.Printf("tx2 parseTransaction err: %v", err)
 						continue
 					}
 
-					if hash1 != hash2 || tokenPairAddress1 == tokenPairAddress2 || gas1 > gas2 {
+					if hash1 != hash2 && tokenPairAddress1 == tokenPairAddress2 { //&& gas1 > gas2
 						for index3 := index2 + 1; index3 < numTxs; index3++ {
 							tx3 := transactions[index3]
 							if tx3.Data() == nil {
-								log.Printf("only normal transaction: %v", err)
+								log.Printf("tx3 only normal transaction: %v", err)
 								continue
 							}
 							hash3, sender3, to3, tokenPairAddress3, valueIn3, valueOut3, gas3, err := parseTransaction(ctx, api.client, signer, tx3, header)
-							if err != nil {
-								log.Printf("parseTransaction err: %v", err)
+							if err != nil || tokenPairAddress3 == emptyAddress || valueIn3 == nil || valueOut3 == nil || gas3 == 0 {
+								log.Printf("tx3 parseTransaction err: %v", err)
 								continue
 							}
-							if hash1 != hash3 || sender1 == sender3 || to1 == to3 || tokenPairAddress1 == tokenPairAddress3 || (valueIn3.Cmp(valueOut1.Mul(valueOut1, big.NewInt(97)).Div(valueOut1, big.NewInt(100))) >= 0 && valueIn3.Cmp(valueOut1.Mul(valueOut1, big.NewInt(103)).Div(valueOut1, big.NewInt(100))) <= 0) || gas3 < gas2 {
+							if hash1 != hash3 && sender1 == sender3 && to1 == to3 && tokenPairAddress1 == tokenPairAddress3 && (valueIn3.Cmp(valueOut1.Mul(valueOut1, big.NewInt(97)).Div(valueOut1, big.NewInt(100))) >= 0 && valueIn3.Cmp(valueOut1.Mul(valueOut1, big.NewInt(103)).Div(valueOut1, big.NewInt(100))) <= 0) { //&& gas3 < gas2
 
 								txDetails1 := TransactionDetails{
 									Hash:             hash1,
@@ -208,13 +208,14 @@ func (api *DetectAPI) detectLogic(ctx context.Context, startBlockNumber int64, e
 								}
 								blockNumber := i
 								logSandwichAttack(logFile, txDetails1, txDetails2, txDetails3, blockNumber)
+								break OuterLoop
 							}
 						}
 					}
 				}
 			}
 		}
-
+		log.Printf("block %d has detected", i)
 	}
 	return nil
 }
@@ -244,7 +245,7 @@ func parseTransaction(ctx context.Context, client *ethclient.Client, signer type
 	var gasUsed uint64
 	tokenPairAddress, valueIn, valueOut, gasUsed, err = parseUniswapSwapLogs(txReceipt)
 	if err != nil {
-		log.Printf("Failed parseUniswapSwapLogs: %s", err)
+		return
 	}
 	gasActuallyUsed := CalculateTransactionCost(gasUsed, tx, header)
 	gas = gasActuallyUsed
@@ -257,28 +258,40 @@ func parseUniswapSwapLogs(txReceipt *types.Receipt) (tokenPairAddress common.Add
 
 	gasUsed = txReceipt.GasUsed
 	for _, log := range txReceipt.Logs {
-		if log.Topics[0] == swapEventABI.Events["Swap"].ID {
-			foundSwap = true
+		//if log.Topics[0] == swapEventABI.Events["Swap"].ID {
+
+		if log.Topics[0] == SwapEventABIEventSignatureHash {
 			var swapEvent struct {
 				sender     common.Address
-				amount0In  big.Int
-				amount1In  big.Int
-				amount0Out big.Int
-				amount1Out big.Int
+				amount0In  *big.Int
+				amount1In  *big.Int
+				amount0Out *big.Int
+				amount1Out *big.Int
 				to         common.Address
 			}
-			err = swapEventABI.UnpackIntoInterface(&swapEvent, "Swap", log.Data)
-			if err != nil {
-				return // 如果在解析过程中遇到错误，直接返回
+			swapEvent.sender = common.HexToAddress(log.Topics[1].Hex())
+			swapEvent.to = common.HexToAddress(log.Topics[2].Hex())
+
+			dataValues := parseData(log.Data)
+			if len(dataValues) != 4 {
+				continue
 			}
-			if swapEvent.amount0In.Cmp(big.NewInt(0)) == 0 {
-				valueIn = &swapEvent.amount1In
-				valueOut = &swapEvent.amount0Out
-			} else {
-				valueIn = &swapEvent.amount0In
-				valueOut = &swapEvent.amount1Out
+			foundSwap = true
+			swapEvent.amount0In = dataValues[0]
+			swapEvent.amount1In = dataValues[1]
+			swapEvent.amount0Out = dataValues[2]
+			swapEvent.amount1Out = dataValues[3]
+
+			if swapEvent.sender != emptyAddress {
+				if swapEvent.amount0In.Cmp(big.NewInt(0)) == 0 {
+					valueIn = swapEvent.amount1In
+					valueOut = swapEvent.amount0Out
+				} else {
+					valueIn = swapEvent.amount0In
+					valueOut = swapEvent.amount1Out
+				}
+				break // 如果找到 "Swap" 事件，不再继续搜索
 			}
-			break // 如果找到 "Swap" 事件，不再继续搜索
 		}
 	}
 	// 如果没有找到 "Swap" 事件，直接返回
@@ -288,7 +301,8 @@ func parseUniswapSwapLogs(txReceipt *types.Receipt) (tokenPairAddress common.Add
 	}
 	// 如果找到Swap事件，解析Transfer事件
 	for _, log := range txReceipt.Logs {
-		if log.Topics[0] == transferEventABI.Events["Transfer"].ID {
+		//if log.Topics[0] == transferEventABI.Events["Transfer"].ID {
+		if log.Topics[0] == TransferEventSignatureHash {
 			// 解析 "Transfer" 事件
 			var transferEvent struct {
 				From  common.Address
@@ -296,23 +310,44 @@ func parseUniswapSwapLogs(txReceipt *types.Receipt) (tokenPairAddress common.Add
 				Value *big.Int
 			}
 
-			err = transferEventABI.UnpackIntoInterface(&transferEvent, "Transfer", log.Data)
-			if err != nil {
-				return // 如果在解析过程中遇到错误，直接返回
-			}
-			tokenPairAddress = transferEvent.To
+			transferEvent.From = common.HexToAddress(log.Topics[1].Hex())
+			transferEvent.To = common.HexToAddress(log.Topics[2].Hex())
+			dataValues := parseData(log.Data)
+			transferEvent.Value = dataValues[0]
 			transferValue := transferEvent.Value
-			if transferValue == valueIn || transferValue == valueOut {
+
+			if transferValue.Cmp(valueIn) == 0 {
+				tokenPairAddress = transferEvent.To
 				break
+			} else if transferValue.Cmp(valueOut) == 0 {
+				tokenPairAddress = transferEvent.From
+				break
+			} else {
+				fmt.Println("transfer event not match with swap event")
+				//log.Println("no Swap event found in transaction logs")
+				continue
 			}
 		}
 	}
-
 	return
 }
 
+func parseData(data []byte) []*big.Int {
+	var values []*big.Int
+
+	// 每32字节(256位)代表一个参数
+	for i := 0; i < len(data); i += 32 {
+		if i+32 <= len(data) {
+			value := new(big.Int)
+			value.SetBytes(data[i : i+32]) // 将字节切片转换为 big.Int
+			values = append(values, value)
+		}
+	}
+	return values
+}
+
 func CalculateTransactionCost(gasUsed uint64, tx *types.Transaction, header *types.Header) uint64 {
-	// 对于 EIP-1559 之后的交易
+	// 对于 EIP-1559 之后的交易，区块高度12965000
 	if tx.Type() == types.DynamicFeeTxType {
 		baseFee := header.BaseFee
 		tip := new(big.Int).Sub(tx.GasFeeCap(), baseFee)
@@ -323,7 +358,7 @@ func CalculateTransactionCost(gasUsed uint64, tx *types.Transaction, header *typ
 		cost := new(big.Int).Mul(totalPerGas, new(big.Int).SetUint64(gasUsed))
 		return cost.Uint64()
 	} else {
-		// 对于 EIP-1559 之前的交易
+		// 对于 EIP-1559 之前的交易，geth执行snap模式保存大概2500000个区块，不是归档节点无法进入该分支
 		cost := new(big.Int).Mul(tx.GasPrice(), new(big.Int).SetUint64(gasUsed))
 		return cost.Uint64()
 	}
