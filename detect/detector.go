@@ -141,7 +141,7 @@ func (api *DetectAPI) detectLogic(ctx context.Context, startBlockNumber int64, e
 			transactions := block.Transactions()
 			numTxs := len(block.Transactions())
 
-			for index1 := 0; index1 < numTxs; index1++ {
+			for index1 := 0; index1 < numTxs-2; index1++ {
 				tx1 := transactions[index1]
 				if tx1.Data() == nil {
 					log.Printf("tx1 only normal transaction: %v", err)
@@ -152,8 +152,14 @@ func (api *DetectAPI) detectLogic(ctx context.Context, startBlockNumber int64, e
 					log.Printf("tx1 parseTransaction err: %v", err)
 					continue // 如果解析失败，可能不是swap，继续下一个
 				}
+				var stopindex2 int
+				if index1+6 > numTxs {
+					stopindex2 = numTxs - 1
+				} else {
+					stopindex2 = index1 + 5
+				}
 			OuterLoop: //检查到跳出，重新开始index1循环
-				for index2 := index1 + 1; index2 < numTxs; index2++ {
+				for index2 := index1 + 1; index2 < stopindex2; index2++ {
 					tx2 := transactions[index2]
 					if tx2.Data() == nil {
 						log.Printf("tx2 only normal transaction: %v", err)
@@ -166,7 +172,13 @@ func (api *DetectAPI) detectLogic(ctx context.Context, startBlockNumber int64, e
 					}
 
 					if hash1 != hash2 && tokenPairAddress1 == tokenPairAddress2 { //&& gas1 > gas2
-						for index3 := index2 + 1; index3 < numTxs; index3++ {
+						var stopindex3 int
+						if index2+5 > numTxs {
+							stopindex3 = numTxs
+						} else {
+							stopindex3 = index2 + 5
+						}
+						for index3 := index2 + 1; index3 < stopindex3; index3++ {
 							tx3 := transactions[index3]
 							if tx3.Data() == nil {
 								log.Printf("tx3 only normal transaction: %v", err)
