@@ -83,7 +83,7 @@ func (api *DetectAPI) DetectNewBlockSandwichAttack(ctx context.Context) error {
 			log.Printf("Detected new block: %d", blockNumber)
 			latestBlockNumber := blockNumber
 			err := api.detectLogic(ctx, int64(latestBlockNumber), int64(latestBlockNumber), logFile)
-			log.Printf("detectLogic error: %v", err)
+			log.Printf("detectLogic finished (DetectNewBlockSandwichAttack)")
 			return err
 		}
 	}
@@ -119,7 +119,7 @@ func (api *DetectAPI) DetectCurrentBLockSandwichAttack(ctx context.Context, star
 	defer logFile.Close()
 
 	err = api.detectLogic(ctx, startBlockNumber, endBlockNumber, logFile)
-	log.Printf("detectLogic error (DetectCurrentBLockSandwichAttack): %v", err)
+	log.Printf("detectLogic finished (DetectCurrentBLockSandwichAttack)")
 	return err
 }
 
@@ -189,7 +189,7 @@ func (api *DetectAPI) detectLogic(ctx context.Context, startBlockNumber int64, e
 								log.Printf("tx3 parseTransaction err: %v", err)
 								continue
 							}
-							if hash1 != hash3 && sender1 == sender3 && to1 == to3 && tokenPairAddress1 == tokenPairAddress3 && (valueIn3.Cmp(valueOut1.Mul(valueOut1, big.NewInt(97)).Div(valueOut1, big.NewInt(100))) >= 0 && valueIn3.Cmp(valueOut1.Mul(valueOut1, big.NewInt(103)).Div(valueOut1, big.NewInt(100))) <= 0) { //&& gas3 < gas2
+							if hash1 != hash3 && sender1 == sender3 && to1 == to3 && tokenPairAddress1 == tokenPairAddress3 { //&& (valueIn3.Cmp(valueOut1.Mul(valueOut1, big.NewInt(97)).Div(valueOut1, big.NewInt(100))) >= 0 && valueIn3.Cmp(valueOut1.Mul(valueOut1, big.NewInt(103)).Div(valueOut1, big.NewInt(100))) <= 0)  //&& gas3 < gas2
 
 								txDetails1 := TransactionDetails{
 									Hash:             hash1,
@@ -325,6 +325,9 @@ func parseUniswapSwapLogs(txReceipt *types.Receipt) (tokenPairAddress common.Add
 			transferEvent.From = common.HexToAddress(log.Topics[1].Hex())
 			transferEvent.To = common.HexToAddress(log.Topics[2].Hex())
 			dataValues := parseData(log.Data)
+			if len(dataValues) == 0 {
+				continue
+			}
 			transferEvent.Value = dataValues[0]
 			transferValue := transferEvent.Value
 
@@ -336,15 +339,13 @@ func parseUniswapSwapLogs(txReceipt *types.Receipt) (tokenPairAddress common.Add
 				break
 			} else {
 				fmt.Println("transfer event not match with swap event")
-				//log.Println("no Swap event found in transaction logs")
-				continue
 			}
 		}
 	}
 	return
 }
 
-func parseData(data []byte) []*big.Int {
+func parseData(data []byte) []*big.Int { //byte格式不用手动移除0x前缀
 	var values []*big.Int
 
 	// 每32字节(256位)代表一个参数
@@ -396,7 +397,7 @@ func logSandwichAttack(logFile io.Writer, txDetails1, txDetails2, txDetails3 Tra
 			"tx2: %s gas2: %d sender2: %s to2: %s valuein2: %s valueout2: %s\n"+
 			"tx3: %s gas3: %d sender3: %s to3: %s valuein3: %s valueout3: %s\n"+
 			"Trading pair address: %s\n"+
-			"detecting time: %s\n",
+			"detecting time: %s\n\n",
 		blockNumber,
 		txDetails1.Hash.Hex(), txDetails1.Gas, txDetails1.Sender.Hex(), txDetails1.To.Hex(), txDetails1.ValueIn.String(), txDetails1.ValueOut.String(),
 		txDetails2.Hash.Hex(), txDetails2.Gas, txDetails2.Sender.Hex(), txDetails2.To.Hex(), txDetails2.ValueIn.String(), txDetails2.ValueOut.String(),
